@@ -121,22 +121,36 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: build
-    # Solo ejecutar si está en main, es push Y tiene el token de Vercel configurado
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.VERCEL_TOKEN != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    continue-on-error: true
     environment:
       name: production
       url: ${{ steps.deployment.outputs.url }}
     steps:
+      - name: Check if Vercel token exists
+        id: check-token
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "Vercel token not configured - skipping deployment"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Vercel token found - proceeding with deployment"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout code
+        if: steps.check-token.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Download build artifacts
+        if: steps.check-token.outputs.skip != 'true'
         uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
 
       - name: Deploy to Vercel
+        if: steps.check-token.outputs.skip != 'true'
         id: deployment
         uses: amondnet/vercel-action@v25
         with:
@@ -152,7 +166,7 @@ jobs:
   notify:
     name: Notification
     runs-on: ubuntu-latest
-    needs: [lint, build, docker]
+    needs: [lint, build, docker, deploy]
     if: always()
     steps:
       - name: Check deployment status
@@ -160,4 +174,4 @@ jobs:
           echo "Lint: ${{ needs.lint.result }}"
           echo "Build: ${{ needs.build.result }}"
           echo "Docker: ${{ needs.docker.result }}"
-          echo "Deploy: skipped (Vercel token not configured)"
+          echo "Deploy: ${{ needs.deploy.result }}"
